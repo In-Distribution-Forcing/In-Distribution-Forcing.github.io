@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>In-Distribution Forcing: For Long Video Generation at Test Time</title>
+<meta name="description" content="In-Distribution Forcing: a training-free framework that keeps test-time extrapolation within the training distribution by controlling both KV caching and KV conditioning.">
+<meta property="og:title" content="In-Distribution Forcing: Keeping Long Video Extrapolation In-Distribution">
+<meta property="og:description" content="A training-free framework for long video generation that controls KV caching and KV conditioning to stay in-distribution.">
+<meta property="og:type" content="website">
+<meta property="og:image" content="static/images/teaser.png">
+<meta name="twitter:card" content="summary_large_image">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&family=Google+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+
+<!-- ============ NAV ============ -->
+<nav class="topnav" id="topnav">
+  <div class="topnav-inner">
+    <a class="topnav-brand" href="#">In-Distribution Forcing</a>
+    <ul class="topnav-links">
+      <li><a href="#abstract">Abstract</a></li>
+      <li><a href="#motivation">Motivation</a></li>
+      <li><a href="#method">Method</a></li>
+      <li><a href="#gallery">Gallery</a></li>
+      <li><a href="#comparisons">Comparisons</a></li>
+      <li><a href="#conclusion">Conclusion</a></li>
+      <li><a href="#bibtex">BibTeX</a></li>
+    </ul>
+    <button class="topnav-toggle" id="navToggle" aria-label="Toggle navigation">
+      <i class="fa-solid fa-bars"></i>
+    </button>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="hero-inner">
+    <p class="hero-venue"></p>
+    <h1 class="hero-title"><span class="hero-title-accent">In-Distribution Forcing for<br>Long Video Generation at Test Time</span></h1>
+
+    <div class="hero-authors">
+      <span><a href="https://swswss.github.io/">Jeongwoo Shin</a><sup>1*</sup></span>
+      <span><a href="https://youngyoon911.github.io/">Youngyoon Choi</a><sup>1*</sup></span>
+      <span><a href="https://github.com/jasonjo97">Sangwoo Jo</a><sup>2</sup></span>
+      <span><a href="#">Hyunmog Kim</a><sup>3</sup></span>
+      <span><a href="#">Sungjoon Choi</a><sup>2</sup></span>
+      <span><a href="#">Joonseok Lee</a><sup>1</sup></span>
+      <span><a href="#">Jaewoong Choi</a><sup>4</sup></span>
+      <span><a href="#">Jaemoo Choi</a><sup>5</sup></span>
+    </div>
+    <div class="hero-affiliations">
+      <span><sup>1</sup>Seoul National University</span>
+      <span><sup>2</sup>Korea University</span>
+      <span><sup>3</sup>Arontier Co., Ltd.</span>
+      <span><sup>4</sup>Sung Kyun Kwan University</span>
+      <span><sup>5</sup>Georgia Institute of Technology</span>
+    </div>
+    <p class="hero-note">(*: equal contribution)</p>
+
+    <div class="hero-buttons">
+      <a class="btn btn-primary" href="index.html">
+        <i class="fa-solid fa-file-lines"></i> Paper
+      </a>
+      <a class="btn btn-primary" href="index.html">
+        <i class="fa-brands fa-github"></i> Code
+      </a>
+      <a class="btn btn-primary" href="#bibtex">
+        <i class="fa-solid fa-quote-left"></i> Citation
+      </a>
+      <!-- <a class="btn btn-primary" href="https://id-forcing.github.io/" target="_blank" rel="noopener">
+        <i class="fa-solid fa-file-lines"></i> Supplementary
+      </a> -->
+    </div>
+  </div>
+
+  <!-- Teaser video strip (PhysCtrl-style: three synced clips under the fold) -->
+  <div class="teaser-strip">
+    <video autoplay loop muted playsinline preload="metadata">
+      <source src="static/videos/teaser/horse.mp4" type="video/mp4">
+    </video>
+    <video autoplay loop muted playsinline preload="metadata">
+      <source src="static/videos/teaser/astronaut.mp4" type="video/mp4">
+    </video>
+    <video autoplay loop muted playsinline preload="metadata">
+      <source src="static/videos/teaser/corgi.mp4" type="video/mp4">
+    </video>
+  </div>
+  <p class="teaser-caption">All videos above are generated from a single prompt at 1&times; speed, extrapolated far beyond the 5s training horizon with no fine-tuning.</p>
+</header>
+
+<main>
+
+<!-- ============ ABSTRACT ============ -->
+<section id="abstract" class="section">
+  <div class="container narrow">
+    <h2 class="section-title">Abstract</h2>
+    <p class="body-text">
+      Recent autoregressive video diffusion models are trained on their own rollouts, aligning training with inference and suppressing <em>drifting</em>, yet this alignment holds only within the training horizon.
+      Test-time extrapolation has therefore drawn attention, but existing approaches remain confined to empirically motivated selection of the key-value (KV) history read during generation.
+      We show that the first out-of-distribution operation of extrapolation is not this <em>KV conditioning</em> but the write that precedes it, <em>i.e., KV caching</em>: writing the KV entry of the last chunk within the horizon is an operation training never executed, and it occurs before any chunk beyond the horizon is generated.
+      We term this the <strong>KV-provenance problem</strong>.
+      A KV entry is a pair of content and provenance, the set of KV entries attended to while it is written, so the same clean chunk maps to different points of KV space under different provenances.
+      As provenance is fixed at write time, no read-side policy can recover it.
+      We propose <strong>In-Distribution Forcing</strong>, which keeps both levels of KV access within the training distribution: self-provenance caching renders both strictly in-distribution, and a denoising step-level conditioning schedule further suppresses residual drifting.
+      The method requires no training, no head or layer analysis, no cache compression, and no additional memory or calculation cost.
+    </p>
+  </div>
+</section>
+
+<!-- ============ MOTIVATION ============ -->
+<section id="motivation" class="section section-alt">
+  <div class="container">
+    <h2 class="section-title">Motivation</h2>
+    <p class="body-text">
+      Beyond the training horizon, the KV cache cannot grow indefinitely, so the oldest entry is
+      evicted whenever a new chunk is cached. This substitution is introduced only at test time: the
+      model has never generated or cached a chunk under a truncated context, so every chunk beyond the
+      horizon is produced from a context the training distribution does not contain. The resulting
+      error is written into the cache and conditions every subsequent chunk, so the deviation
+      accumulates as generation proceeds &mdash; observed as long-horizon drift.
+    </p>
+    <div class="figure">
+      <img src="static/images/motivation.png" alt="Drift accumulation diagram" loading="lazy">
+      <p class="figure-caption">
+      </p>
+    </div>
+    <p class="body-text">
+      Existing approaches respond by asking which information should be retained in the cache,
+      treating drift as a matter of choosing a better KV conditioning policy. Such policies can slow
+      the degradation, but they leave its cause intact: the model still operates outside the
+      distribution it was trained on. Our position is the opposite one &mdash; rather than making
+      out-of-distribution operation less damaging, we ask that test-time extrapolation remain an
+      in-distribution operation in the first place.
+    </p>
+  </div>
+</section>
+
+<!-- ============ METHOD ============ -->
+<section id="method" class="section">
+  <div class="container">
+    <h2 class="section-title">Method</h2>
+
+    <div class="figure">
+      <img src="static/images/method.png" alt="ID-Forcing method overview" loading="lazy">
+      <p class="figure-caption">
+        <strong>Overview of ID-Forcing.</strong> ID-Forcing controls both KV caching and KV
+        conditioning so that every entry written and read beyond the training horizon matches the
+        provenance the model was trained on.
+      </p>
+    </div>
+
+    <div class="method-block">
+      <h3 class="method-subtitle">The KV-Provenance Problem</h3>
+      <p class="body-text">
+        A KV entry is determined not only by the chunk it encodes, but by its <em>provenance</em>
+        &mdash; the set of prior entries it attended to when cached. The same clean chunk therefore
+        maps to different points in KV space under different caching windows, and training supervises
+        only one of them. Writing an entry under an unseen provenance yields an out-of-distribution
+        state before any chunk beyond the horizon is sampled &mdash; and since provenance is fixed at
+        KV caching, no downstream conditioning policy can recover from it.
+      </p>
+    </div>
+
+    <div class="method-block">
+      <h3 class="method-subtitle">The First Chunk as a Persistent Condition</h3>
+      <p class="body-text">
+        The first chunk does not share the distribution of any later chunk: its opening latent frame
+        is encoded from a single pixel frame, while every subsequent frame aggregates multiple frames.
+        Its KV entry is therefore not substitutable by any later one, and evicting it is itself a
+        departure from the training distribution. ID-Forcing keeps this entry in the window for the
+        entire rollout &mdash; not as an attention sink, but because it is the only entry the model has
+        ever been trained to read at that position.
+      </p>
+    </div>
+
+    <div class="method-block">
+      <h3 class="method-subtitle">Provenance-Consistent Caching</h3>
+      <p class="body-text">
+        [Describe how ID-Forcing writes each new KV entry so its caching context matches one the
+        model saw during training &mdash; the core mechanism that fixes KV caching, as distinct from
+        the conditioning-only fixes in prior work.]
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ GALLERY ============ -->
+<section id="gallery" class="section section-alt">
+  <div class="container">
+    <h2 class="section-title">Gallery</h2>
+    <p class="section-subtitle">ID-Forcing on diverse prompts, extrapolated well beyond the 5s training horizon.</p>
+
+    <div class="gallery-controls">
+      <button class="gallery-ctrl-btn" id="galleryPlayAll"><i class="fa-solid fa-play"></i> Play All</button>
+      <button class="gallery-ctrl-btn" id="galleryPauseAll"><i class="fa-solid fa-pause"></i> Pause All</button>
+      <button class="gallery-ctrl-btn" id="gallerySpeedToggle" data-speed="1"><i class="fa-solid fa-forward"></i> 2&times; Speed</button>
+    </div>
+
+    <div class="gallery-pager">
+      <button class="carousel-btn carousel-prev" aria-label="Previous set"><i class="fa-solid fa-chevron-left"></i></button>
+      <div class="gallery-pages">
+        <div class="gallery-track">
+        <div class="gallery-page active">
+          <div class="gallery-row">
+            <p class="gallery-row-title">30s</p>
+            <div class="video-grid">
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/30s/freckles.mp4" type="video/mp4"></video>
+                <figcaption>Young woman with freckles</figcaption>
+              </figure>
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/30s/santorini.mp4" type="video/mp4"></video>
+                <figcaption>Aerial view of Santorini</figcaption>
+              </figure>
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/30s/goldrush.mp4" type="video/mp4"></video>
+                <figcaption>California during the gold rush</figcaption>
+              </figure>
+            </div>
+          </div>
+          <div class="gallery-row">
+            <p class="gallery-row-title">60s</p>
+            <div class="video-grid">
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/60s/animation.mp4" type="video/mp4"></video>
+                <figcaption>Japanese animated film</figcaption>
+              </figure>
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/60s/chimneys.mp4" type="video/mp4"></video>
+                <figcaption>Chimneys against the setting sun</figcaption>
+              </figure>
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/60s/tsunami.mp4" type="video/mp4"></video>
+                <figcaption>A dynamic tsunami rushing</figcaption>
+              </figure>
+            </div>
+          </div>
+        </div>
+        <div class="gallery-page">
+          <div class="gallery-row">
+            <p class="gallery-row-title">120s</p>
+            <div class="video-grid">
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/120s/rabbit.mp4" type="video/mp4"></video>
+                <figcaption>A cute rabbit wearing glasses</figcaption>
+              </figure>
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/120s/cottoncandy.mp4" type="video/mp4"></video>
+                <figcaption>A giant humanoid made of cotton candy</figcaption>
+              </figure>
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/120s/tokyo.mp4" type="video/mp4"></video>
+                <figcaption>Beautiful, snowy Tokyo city</figcaption>
+              </figure>
+            </div>
+          </div>
+          <div class="gallery-row">
+            <p class="gallery-row-title">240s</p>
+            <div class="video-grid">
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/240s/maelstrom.mp4" type="video/mp4"></video>
+                <figcaption>Maelstrom forms in the water</figcaption>
+              </figure>
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/240s/blooming.mp4" type="video/mp4"></video>
+                <figcaption>A blooming garden</figcaption>
+              </figure>
+              <figure class="video-card">
+                <video controls loop muted playsinline preload="metadata"><source src="static/videos/gallery/240s/candle.mp4" type="video/mp4"></video>
+                <figcaption>Fluffy monster beside a red candle</figcaption>
+              </figure>
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+      <button class="carousel-btn carousel-next" aria-label="Next set"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+    <div class="gallery-dots">
+      <button class="gallery-dot active" aria-label="Go to set 1"></button>
+      <button class="gallery-dot" aria-label="Go to set 2"></button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ COMPARISONS ============ -->
+<section id="comparisons" class="section">
+  <div class="container">
+    <h2 class="section-title">Comparisons</h2>
+    <p class="section-subtitle">
+      ID-Forcing against Self-Forcing, Deep Forcing, MemRoPE, and Infinity-RoPE on identical prompts
+      and seeds.
+    </p>
+
+    <div class="gallery-controls">
+      <button class="gallery-ctrl-btn ctrl-play-all"><i class="fa-solid fa-play"></i> Play All</button>
+      <button class="gallery-ctrl-btn ctrl-pause-all"><i class="fa-solid fa-pause"></i> Pause All</button>
+      <button class="gallery-ctrl-btn ctrl-speed" data-speed="1"><i class="fa-solid fa-forward"></i> 2&times; Speed</button>
+    </div>
+
+    <div class="compare-row">
+      <p class="compare-row-title">Prompt: A litter of playful golden retriever puppies popping their heads out of the snowy ground, ...</p>
+      <div class="compare-grid">
+        <figure class="video-card"><video controls loop muted playsinline preload="metadata"><source src="static/videos/comparisons/self-forcing/self-forcing.mp4" type="video/mp4"></video><figcaption>Self-Forcing</figcaption></figure>
+        <figure class="video-card"><video controls loop muted playsinline preload="metadata"><source src="static/videos/comparisons/self-forcing/deepforcing.mp4" type="video/mp4"></video><figcaption>Deep Forcing</figcaption></figure>
+        <figure class="video-card"><video controls loop muted playsinline preload="metadata"><source src="static/videos/comparisons/self-forcing/infrope.mp4" type="video/mp4"></video><figcaption>&infin;-RoPE</figcaption></figure>
+        <figure class="video-card"><video controls loop muted playsinline preload="metadata"><source src="static/videos/comparisons/self-forcing/memrope.mp4" type="video/mp4"></video><figcaption>MemRoPE</figcaption></figure>
+        <figure class="video-card"><video controls loop muted playsinline preload="metadata"><source src="static/videos/comparisons/self-forcing/ours.mp4" type="video/mp4"></video><figcaption><strong>ID-Forcing (Ours)</strong></figcaption></figure>
+      </div>
+    </div>
+
+    <div class="compare-row">
+      <p class="compare-row-title">Prompt: A movie trailer featuring the adventures of a 30-year-old space man wearing a red wool knitted motorcycle helmet... </p>
+      <div class="compare-grid">
+        <figure class="video-card"><video controls loop muted playsinline preload="metadata"><source src="static/videos/comparisons/longlive/longlive.mp4" type="video/mp4"></video><figcaption>LongLive</figcaption></figure>
+        <figure class="video-card"><video controls loop muted playsinline preload="metadata"><source src="static/videos/comparisons/longlive/deepforcing.mp4" type="video/mp4"></video><figcaption>Deep Forcing</figcaption></figure>
+        <figure class="video-card"><video controls loop muted playsinline preload="metadata"><source src="static/videos/comparisons/longlive/infrope.mp4" type="video/mp4"></video><figcaption>&infin;-RoPE</figcaption></figure>
+        <figure class="video-card"><video controls loop muted playsinline preload="metadata"><source src="static/videos/comparisons/longlive/memrope.mp4" type="video/mp4"></video><figcaption>MemRoPE</figcaption></figure>
+        <figure class="video-card"><video controls loop muted playsinline preload="metadata"><source src="static/videos/comparisons/longlive/ours.mp4" type="video/mp4"></video><figcaption><strong>ID-Forcing (Ours)</strong></figcaption></figure>
+      </div>
+    </div>
+
+    <!-- Duplicate .compare-row blocks per prompt / duration bucket (30s, 60s, 120s, 240s) -->
+  </div>
+</section>
+
+<!-- ============ CONCLUSION ============ -->
+<section id="conclusion" class="section section-alt">
+  <div class="container narrow">
+    <h2 class="section-title">Conclusion</h2>
+    <p class="body-text">
+      [Summarize the KV-provenance problem, the In-Distribution Forcing solution, and its key results in
+      2&ndash;4 sentences. Mention limitations or future directions if relevant.]
+    </p>
+  </div>
+</section>
+
+<!-- ============ BIBTEX ============ -->
+<section id="bibtex" class="section">
+  <div class="container narrow">
+    <h2 class="section-title">BibTeX</h2>
+    <div class="bibtex-box">
+      <button class="copy-btn" id="copyBibtex"><i class="fa-regular fa-copy"></i> Copy</button>
+      <pre id="bibtexCode">@article{idforcing2026,
+  title   = {In-Distribution Forcing for Long Video Generation at Test Time},
+  author  = {Shin, Jeongwoo* and Choi, Youngyoon* and Jo, Sangwoo and Kim, Hyunmog and Choi, Sungjoon and Lee, Joonseok and Choi, Jaewoong and Choi, Jaemoo},
+  journal = {arXiv preprint arXiv:0000.00000},
+  year    = {2026}
+}</pre>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="container narrow">
+    <p>
+      This page is adapted from the
+      <a href="https://github.com/eliahuhorwitz/Academic-project-page-template" target="_blank" rel="noopener">Academic Project Page Template</a>,
+      originally from <a href="https://nerfies.github.io" target="_blank" rel="noopener">Nerfies</a>.
+    </p>
+  </div>
+</footer>
+
+<script src="static/js/main.js"></script>
+</body>
+</html>
