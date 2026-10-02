@@ -123,13 +123,14 @@
     <div class="figure">
       <img src="static/images/motivation.png" alt="Same conditioning window, different provenance: self-caching vs. Self-Forcing caching vs. sink caching" loading="lazy">
       <p class="figure-caption">
-        <strong>Figure 2. Same conditioning, different provenance.</strong> We generate the next chunk
+        <strong>Figure 2.</strong> Same conditioning, different provenance. 
+        <!-- We generate the next chunk
         x<sub>7</sub> from the same conditioning window, varying only how the last chunk of the
         horizon, x<sub>6</sub>, is cached. <em>Self-caching (ours)</em>: x<sub>6</sub> attends to no
         prior entry, and x<sub>7</sub> shows no drifting. <em>Self-Forcing caching</em>:
         x<sub>6</sub> attends to a window never seen in training, and x<sub>7</sub> degrades.
         <em>Sink caching</em>: keeping the first chunk does not help, as the window is still unseen in
-        training. How a chunk is cached alone can determine whether the next chunk drifts.
+        training. How a chunk is cached alone can determine whether the next chunk drifts. -->
       </p>
     </div>
   </div>
@@ -143,53 +144,39 @@
     <div class="figure">
       <img src="static/images/method.png" alt="KV operations of Self-Forcing vs. ID-Forcing" loading="lazy">
       <p class="figure-caption">
-        <strong>Figure 3. KV operations comparison.</strong> Both illustrations show the caching window of each
+        <strong>Figure 3.</strong> KV operations comparison.
+        <!-- Both illustrations show the caching window of each
         KV entry and the conditioning window of size L used to generate chunk x<sub>i</sub>.
         <em>Left:</em> Self-Forcing caches every entry autoregressively, so entries beyond the horizon
         are cached under windows unseen in training. <em>Right:</em> ID-Forcing caches the earlier
         entries with self-caching and the rest autoregressively on top of them, so every entry is
-        cached under a window seen in training.
+        cached under a window seen in training. -->
       </p>
     </div>
 
     <p class="body-text">
-      In-Distribution Forcing (ID-Forcing) is a training-free framework that treats drifting as a
-      deviation from the training distribution, and shows that this deviation occurs not only in KV
-      conditioning but also in KV caching. It therefore applies one rule to each KV operation:
-      <strong>Level 1</strong> controls how each KV entry is written, and <strong>Level 2</strong>
-      controls how KV entries are read during chunk generation. Every KV operation at test time is
-      then one that training executed.
+      ID-Forcing keeps test-time extrapolation within the training distribution by controlling both
+      how KV entries are written and how they are read. It relies on one simple rule for each KV
+      operation:
     </p>
 
     <div class="method-block">
       <h3 class="method-subtitle">Level 1 &ndash; KV Caching: Self-Caching</h3>
       <p class="body-text">
-        A chunk beyond the horizon starts from pure noise and passes through frozen projections, so
-        the KV entries in its conditioning window are the only path through which drift can enter.
-        Those entries are in turn in-distribution only if each was cached under a provenance that
-        training executed. <em>Self-caching</em> enforces this at the source. For a conditioning window
-        of L entries, the first &ell; entries are cached attending only to themselves, and the
-        remaining L&minus;&ell; entries are cached autoregressively on top of the last self-cached
-        entry. This mirrors how training caches &kappa;<sub>1</sub>, &kappa;<sub>2</sub>, &hellip; on
-        top of &kappa;<sub>0</sub>. No KV entry is ever written under an unseen context, so every chunk
-        is generated from in-distribution entries and is itself cached as one.
+        Instead of caching each chunk on top of a rolling window the model never saw in training, we
+        cache the earliest entries in the window attending only to themselves, and the rest
+        autoregressively on top of them. Every KV entry is thus written under a provenance that
+        training executed, preventing out-of-distribution entries at their source.
       </p>
     </div>
 
     <div class="method-block">
       <h3 class="method-subtitle">Level 2 &ndash; KV Conditioning: Exact Rolling Window</h3>
       <p class="body-text">
-        During training, every generation is conditioned on the first chunk &kappa;<sub>0</sub>, which
-        is also distributionally unique: the causal 3D-VAE encodes its first latent frame from a single
-        pixel frame, whereas every later frame aggregates multiple frames. Evicting &kappa;<sub>0</sub>
-        is therefore itself out-of-distribution, so unlike attention sinks that keep several early
-        entries for empirical stability, we keep exactly this one entry. The conditioning window holds
-        &kappa;<sub>0</sub> at slot 0 and the L&minus;1 most recent entries (L &lt; N). After each
-        chunk, the oldest non-sink entry is evicted and the rest are re-rotated in RoPE, so every
-        temporal distance in the window matches one seen in training. Self-caching is what makes this
-        rolling window exact: eviction strips an autoregressively cached entry of its provenance, but a
-        self-cached entry has no external provenance to lose. The result is a plain rolling window
-        with one rule per KV operation, extending a five-second model to minute-scale generation.
+        We always keep the first chunk &kappa;<sub>0</sub>, which every training step conditions on and
+        which is distributionally unique, together with the most recent entries, re-rotated so that
+        temporal distances stay within the trained range. Since self-cached entries have no provenance
+        to lose on eviction, the rolling window stays exactly in-distribution.
       </p>
     </div>
   </div>
