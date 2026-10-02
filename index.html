@@ -49,7 +49,7 @@
       <span><a href="https://youngyoon911.github.io/">Youngyoon Choi</a><sup>1*</sup></span>
       <span><a href="https://github.com/jasonjo97">Sangwoo Jo</a><sup>2</sup></span>
       <span><a href="#">Hyunmog Kim</a><sup>3</sup></span>
-      <span><a href="#">Sungjoon Choi</a><sup>2</sup></span>
+      <span><a href="https://aii.korea.ac.kr/people.html">Sungjoon Choi</a><sup>2</sup></span>
       <span><a href="http://www.joonseok.net/home.html">Joonseok Lee</a><sup>1</sup></span>
       <span><a href="https://sites.google.com/view/jaewoongchoi/home">Jaewoong Choi</a><sup>4</sup></span>
       <span><a href="https://jaemoo-choi.github.io/">Jaemoo Choi</a><sup>5</sup></span>
@@ -73,13 +73,13 @@
       <a class="btn btn-primary" href="#bibtex">
         <i class="fa-solid fa-quote-left"></i> Citation
       </a>
-      <!-- <a class="btn btn-primary" href="https://id-forcing.github.io/" target="_blank" rel="noopener">
+      <a class="btn btn-primary" href="https://idforcing.github.io/" target="_blank" rel="noopener">
         <i class="fa-solid fa-file-lines"></i> Supplementary
-      </a> -->
+      </a>
     </div>
   </div>
 
-  <!-- Teaser video strip (PhysCtrl-style: three synced clips under the fold) -->
+  <!-- Teaser video strip -->
   <div class="teaser-strip">
     <video autoplay loop muted playsinline preload="metadata">
       <source src="static/videos/teaser/horse.mp4" type="video/mp4">
@@ -91,7 +91,7 @@
       <source src="static/videos/teaser/corgi.mp4" type="video/mp4">
     </video>
   </div>
-  <p class="teaser-caption">All videos above are generated from a single prompt at 1&times; speed, extrapolated far beyond the 5s training horizon with no fine-tuning.</p>
+  <p class="teaser-caption">All videos above are generated from a single prompt at 1&times; speed,<br>extrapolated far beyond the 5s training horizon with no fine-tuning.</p>
 </header>
 
 <main>
@@ -101,14 +101,9 @@
   <div class="container narrow">
     <h2 class="section-title">Abstract</h2>
     <p class="body-text">
-      Recent autoregressive video diffusion models are trained on their own rollouts, aligning training with inference and suppressing <em>drifting</em>, yet this alignment holds only within the training horizon.
-      Test-time extrapolation has therefore drawn attention, but existing approaches remain confined to empirically motivated selection of the key-value (KV) history read during generation.
-      We show that the first out-of-distribution operation of extrapolation is not this <em>KV conditioning</em> but the write that precedes it, <em>i.e., KV caching</em>: writing the KV entry of the last chunk within the horizon is an operation training never executed, and it occurs before any chunk beyond the horizon is generated.
-      We term this the <strong>KV-provenance problem</strong>.
-      A KV entry is a pair of content and provenance, the set of KV entries attended to while it is written, so the same clean chunk maps to different points of KV space under different provenances.
-      As provenance is fixed at write time, no read-side policy can recover it.
-      We propose <strong>In-Distribution Forcing</strong>, which keeps both levels of KV access within the training distribution: self-provenance caching renders both strictly in-distribution, and a denoising step-level conditioning schedule further suppresses residual drifting.
-      The method requires no training, no head or layer analysis, no cache compression, and no additional memory or calculation cost.
+      Modern autoregressive (AR) video diffusion models excel at short-horizon video generation, yet generating long videos remains challenging due to <em>drifting</em>, where colors and textures shift, and motion dynamics decay. Existing works primarily rely on <em>KV conditioning</em>, which selects or modifies cached key-value (KV) entries to mitigate drifting. However, we observe that KV conditioning alone is insufficient as it assumes cached KV entries remain in-distribution. This assumption fails beyond the training horizon: nothing constrains the construction of KV entries during rollout, giving rise to the <em>KV-provenance problem</em> where cached entries themselves become out-of-distribution (OOD). To address this, we propose <strong>In-Distribution Forcing (ID-Forcing)</strong>, a test-time framework that aligns both KV caching and KV conditioning with training configurations.
+      Its key mechanism, <em>self-caching</em>, prevents OOD KV entries at their source. Each chunk is cached without attending to prior KV entry, keeping the rolling window exactly in-distribution.
+      Consequently, ID-Forcing seamlessly extends short-horizon models to minute-scale video generation. Extensive evaluations show that our method remains competitive on standard video generation benchmark while substantially outperforming prior work in mitigating drifting, as validated by both our drift metrics and a user study.
     </p>
   </div>
 </section>
@@ -118,26 +113,25 @@
   <div class="container">
     <h2 class="section-title">Motivation</h2>
     <p class="body-text">
-      Beyond the training horizon, the KV cache cannot grow indefinitely, so the oldest entry is
-      evicted whenever a new chunk is cached. This substitution is introduced only at test time: the
-      model has never generated or cached a chunk under a truncated context, so every chunk beyond the
-      horizon is produced from a context the training distribution does not contain. The resulting
-      error is written into the cache and conditions every subsequent chunk, so the deviation
-      accumulates as generation proceeds &mdash; observed as long-horizon drift.
+      Prior works tackle drifting through <em>KV conditioning</em>, controlling which cached entries the model reads, but implicitly assumes the
+      cached KV entries are themselves in-distribution. We find this assumption breaks: a KV entry
+      also depends on the entries it attended to when it was cached, i.e., its <em>provenance</em>,
+      and beyond the horizon every chunk is cached under a provenance never seen in training. We call
+      this the <strong>KV-provenance problem</strong>. Since provenance is fixed at caching time, no
+      conditioning policy can recover from it.
     </p>
     <div class="figure">
-      <img src="static/images/motivation.png" alt="Drift accumulation diagram" loading="lazy">
+      <img src="static/images/motivation.png" alt="Same conditioning window, different provenance: self-caching vs. Self-Forcing caching vs. sink caching" loading="lazy">
       <p class="figure-caption">
+        <strong>Figure 2. Same conditioning, different provenance.</strong> We generate the next chunk
+        x<sub>7</sub> from the same conditioning window, varying only how the last chunk of the
+        horizon, x<sub>6</sub>, is cached. <em>Self-caching (ours)</em>: x<sub>6</sub> attends to no
+        prior entry, and x<sub>7</sub> shows no drifting. <em>Self-Forcing caching</em>:
+        x<sub>6</sub> attends to a window never seen in training, and x<sub>7</sub> degrades.
+        <em>Sink caching</em>: keeping the first chunk does not help, as the window is still unseen in
+        training. How a chunk is cached alone can determine whether the next chunk drifts.
       </p>
     </div>
-    <p class="body-text">
-      Existing approaches respond by asking which information should be retained in the cache,
-      treating drift as a matter of choosing a better KV conditioning policy. Such policies can slow
-      the degradation, but they leave its cause intact: the model still operates outside the
-      distribution it was trained on. Our position is the opposite one &mdash; rather than making
-      out-of-distribution operation less damaging, we ask that test-time extrapolation remain an
-      in-distribution operation in the first place.
-    </p>
   </div>
 </section>
 
@@ -147,44 +141,55 @@
     <h2 class="section-title">Method</h2>
 
     <div class="figure">
-      <img src="static/images/method.png" alt="ID-Forcing method overview" loading="lazy">
+      <img src="static/images/method.png" alt="KV operations of Self-Forcing vs. ID-Forcing" loading="lazy">
       <p class="figure-caption">
-        <strong>Overview of ID-Forcing.</strong> ID-Forcing controls both KV caching and KV
-        conditioning so that every entry written and read beyond the training horizon matches the
-        provenance the model was trained on.
+        <strong>Figure 3. KV operations comparison.</strong> Both illustrations show the caching window of each
+        KV entry and the conditioning window of size L used to generate chunk x<sub>i</sub>.
+        <em>Left:</em> Self-Forcing caches every entry autoregressively, so entries beyond the horizon
+        are cached under windows unseen in training. <em>Right:</em> ID-Forcing caches the earlier
+        entries with self-caching and the rest autoregressively on top of them, so every entry is
+        cached under a window seen in training.
+      </p>
+    </div>
+
+    <p class="body-text">
+      In-Distribution Forcing (ID-Forcing) is a training-free framework that treats drifting as a
+      deviation from the training distribution, and shows that this deviation occurs not only in KV
+      conditioning but also in KV caching. It therefore applies one rule to each KV operation:
+      <strong>Level 1</strong> controls how each KV entry is written, and <strong>Level 2</strong>
+      controls how KV entries are read during chunk generation. Every KV operation at test time is
+      then one that training executed.
+    </p>
+
+    <div class="method-block">
+      <h3 class="method-subtitle">Level 1 &ndash; KV Caching: Self-Caching</h3>
+      <p class="body-text">
+        A chunk beyond the horizon starts from pure noise and passes through frozen projections, so
+        the KV entries in its conditioning window are the only path through which drift can enter.
+        Those entries are in turn in-distribution only if each was cached under a provenance that
+        training executed. <em>Self-caching</em> enforces this at the source. For a conditioning window
+        of L entries, the first &ell; entries are cached attending only to themselves, and the
+        remaining L&minus;&ell; entries are cached autoregressively on top of the last self-cached
+        entry. This mirrors how training caches &kappa;<sub>1</sub>, &kappa;<sub>2</sub>, &hellip; on
+        top of &kappa;<sub>0</sub>. No KV entry is ever written under an unseen context, so every chunk
+        is generated from in-distribution entries and is itself cached as one.
       </p>
     </div>
 
     <div class="method-block">
-      <h3 class="method-subtitle">The KV-Provenance Problem</h3>
+      <h3 class="method-subtitle">Level 2 &ndash; KV Conditioning: Exact Rolling Window</h3>
       <p class="body-text">
-        A KV entry is determined not only by the chunk it encodes, but by its <em>provenance</em>
-        &mdash; the set of prior entries it attended to when cached. The same clean chunk therefore
-        maps to different points in KV space under different caching windows, and training supervises
-        only one of them. Writing an entry under an unseen provenance yields an out-of-distribution
-        state before any chunk beyond the horizon is sampled &mdash; and since provenance is fixed at
-        KV caching, no downstream conditioning policy can recover from it.
-      </p>
-    </div>
-
-    <div class="method-block">
-      <h3 class="method-subtitle">The First Chunk as a Persistent Condition</h3>
-      <p class="body-text">
-        The first chunk does not share the distribution of any later chunk: its opening latent frame
-        is encoded from a single pixel frame, while every subsequent frame aggregates multiple frames.
-        Its KV entry is therefore not substitutable by any later one, and evicting it is itself a
-        departure from the training distribution. ID-Forcing keeps this entry in the window for the
-        entire rollout &mdash; not as an attention sink, but because it is the only entry the model has
-        ever been trained to read at that position.
-      </p>
-    </div>
-
-    <div class="method-block">
-      <h3 class="method-subtitle">Provenance-Consistent Caching</h3>
-      <p class="body-text">
-        [Describe how ID-Forcing writes each new KV entry so its caching context matches one the
-        model saw during training &mdash; the core mechanism that fixes KV caching, as distinct from
-        the conditioning-only fixes in prior work.]
+        During training, every generation is conditioned on the first chunk &kappa;<sub>0</sub>, which
+        is also distributionally unique: the causal 3D-VAE encodes its first latent frame from a single
+        pixel frame, whereas every later frame aggregates multiple frames. Evicting &kappa;<sub>0</sub>
+        is therefore itself out-of-distribution, so unlike attention sinks that keep several early
+        entries for empirical stability, we keep exactly this one entry. The conditioning window holds
+        &kappa;<sub>0</sub> at slot 0 and the L&minus;1 most recent entries (L &lt; N). After each
+        chunk, the oldest non-sink entry is evicted and the rest are re-rotated in RoPE, so every
+        temporal distance in the window matches one seen in training. Self-caching is what makes this
+        rolling window exact: eviction strips an autoregressively cached entry of its provenance, but a
+        self-cached entry has no external provenance to lose. The result is a plain rolling window
+        with one rule per KV operation, extending a five-second model to minute-scale generation.
       </p>
     </div>
   </div>
@@ -335,8 +340,15 @@
   <div class="container narrow">
     <h2 class="section-title">Conclusion</h2>
     <p class="body-text">
-      [Summarize the KV-provenance problem, the In-Distribution Forcing solution, and its key results in
-      2&ndash;4 sentences. Mention limitations or future directions if relevant.]
+      We introduce In-Distribution Forcing, a training-free framework for stable long-horizon video
+      generation. By analyzing the key&ndash;value (KV) dynamics of autoregressive video models, we
+      identify the <em>KV-provenance problem</em>, an out-of-distribution failure mode that originates
+      at the caching level. To resolve it, we propose a two-level KV management rule. At the caching
+      level, we apply self-caching. At the conditioning level, we strictly bound the window length
+      (L &le; N&minus;1) while permanently keeping the first chunk &kappa;<sub>0</sub>. Across durations,
+      backbones (Self-Forcing and LongLive), and metrics, ID-Forcing is highly competitive. Most
+      importantly, it suppresses the quality drift inherent to autoregressive models and keeps video
+      dynamics stable over minute-scale generation.
     </p>
   </div>
 </section>
